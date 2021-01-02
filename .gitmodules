@@ -1,3 +1,4 @@
 [submodule "TextAttack"]
 	path = TextAttack
-	url = https://github.com/QData/TextAttack.git
+	url = https://github.com/stvhuang/TextAttack
+	branch = chinese
