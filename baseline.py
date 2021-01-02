@@ -1,11 +1,14 @@
 import argparse
-from ignite.metrics import Accuracy
+
 import torch
 import torch.optim as optim
+from ignite.metrics import Accuracy
 from torch.utils.data import DataLoader
-from transformers import BertConfig, BertTokenizerFast, BertForSequenceClassification
-from dataset import load_dataset
 from tqdm import tqdm
+from transformers import (BertConfig, BertForSequenceClassification,
+                          BertTokenizerFast)
+
+from dataset import load_dataset
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--batch_size", default=32, type=int)
@@ -13,24 +16,23 @@ parser.add_argument("--cuda", default=0, type=int)
 parser.add_argument("--dataset", default="chnsenticorp", type=str)
 parser.add_argument("--max_length", default=128, type=int)
 parser.add_argument("--num_iter", default=10, type=int)
+parser.add_argument("--pretrained", default="hfl/chinese-macbert-base", type=str)
 args = parser.parse_args()
 
-pretrained = "hfl/chinese-macbert-base"
-# pretrained = "hfl/chinese-macbert-large"
 device = torch.device(f"cuda:{args.cuda}" if torch.cuda.is_available() else "cpu")
 
-config = BertConfig.from_pretrained(pretrained)
+config = BertConfig.from_pretrained(args.pretrained)
 config.output_hidden_states = True
 config.output_attentions = True
 
-tokenizer = BertTokenizerFast.from_pretrained(pretrained, config=config)
-model = BertForSequenceClassification.from_pretrained(pretrained, config=config).to(
-    device
-)
+tokenizer = BertTokenizerFast.from_pretrained("hfl/chinese-macbert-base", config=config)
+model = BertForSequenceClassification.from_pretrained(
+    args.pretrained, config=config
+).to(device)
 optimizer = optim.AdamW(
     [
-        {"params": model.bert.parameters(), "lr": 1e-4},
-        {"params": model.classifier.parameters(), "lr": 1e-2},
+        {"params": model.bert.parameters(), "lr": 1e-6},
+        {"params": model.classifier.parameters(), "lr": 1e-5},
     ]
 )
 
@@ -45,7 +47,7 @@ dataset = dataset.map(
         return_attention_mask=False,
     ),
     batched=True,
-    batch_size=4096,
+    batch_size=8192,
 )
 dataset.set_format(type="torch", columns=["input_ids", "label"])
 dataloader = DataLoader(
@@ -53,6 +55,7 @@ dataloader = DataLoader(
 )
 
 accuracy = Accuracy()
+best_acc = 0.0
 
 for iter in range(args.num_iter):
     accuracy.reset()
@@ -70,5 +73,12 @@ for iter in range(args.num_iter):
 
         accuracy.update((logits, labels))
 
-    model.save_pretrained(f"/data/pretrained/{pretrained}/iter_{iter:02d}")
-    print(f"Iter: {iter}, Acc: {accuracy.compute()}")
+    acc = accuracy.compute()
+
+    if acc > best_acc:
+        best_acc = acc
+        model.save_pretrained(
+            f"/data/model/hfl/chinese-macbert-base/{args.dataset}_{best_acc:.6f}"
+        )
+
+    print(f"Iter: {iter}, Acc: {acc:.4f}, Best Acc: {best_acc:.4f}")
